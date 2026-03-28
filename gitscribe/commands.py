@@ -68,9 +68,7 @@ def _data_generate_commit_message(repo_path: str = REPO_PATH, staged_only: bool 
     return _ok(message=message, truncated=diff_result["truncated"])
 
 
-def _data_generate_pr_description(
-    repo_path: str = REPO_PATH, base_branch: str = "main"
-) -> dict:
+def _data_generate_pr_description(repo_path: str = REPO_PATH, base_branch: str = "main") -> dict:
     try:
         result = subprocess.run(
             ["git", "diff", f"{base_branch}...HEAD"],

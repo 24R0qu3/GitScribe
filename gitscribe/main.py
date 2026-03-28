@@ -28,9 +28,7 @@ def _fail(msg: str) -> None:
 
 
 def cmd_commit_msg(args: argparse.Namespace) -> None:
-    result = _data_generate_commit_message(
-        repo_path=args.repo, staged_only=not args.unstaged
-    )
+    result = _data_generate_commit_message(repo_path=args.repo, staged_only=not args.unstaged)
     if "error" in result:
         _fail(result["error"])
     if result.get("truncated"):
@@ -97,7 +95,7 @@ def cmd_mcp(args: argparse.Namespace) -> None:
 def _build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="gitscribe",
-        description="AI-powered git assistant — commit messages, PR descriptions, reviews, and more.",
+        description="AI-powered git assistant — commit messages, PR descriptions, reviews, and more.",  # noqa: E501
     )
     parser.add_argument("--version", action="version", version="%(prog)s 0.1.0")
 
