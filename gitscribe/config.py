@@ -8,6 +8,7 @@ _CONFIG_DIR = Path(user_config_dir("gitscribe"))
 _CONFIG_FILE = _CONFIG_DIR / "config.toml"
 
 _DEFAULTS: dict = {
+    "repo_path": os.getcwd(),
     "backend": "auto",
     "ollama_url": "http://localhost:11434/api/generate",
     "ollama_health_url": "http://localhost:11434/api/tags",
@@ -29,6 +30,7 @@ def _load() -> dict:
 
 _cfg = _load()
 
+REPO_PATH: str = _cfg["repo_path"]
 BACKEND: str = _cfg["backend"]
 OLLAMA_URL: str = _cfg["ollama_url"]
 OLLAMA_HEALTH_URL: str = _cfg["ollama_health_url"]
