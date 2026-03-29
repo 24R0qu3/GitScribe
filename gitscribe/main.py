@@ -2,6 +2,7 @@ import argparse
 import asyncio
 import json
 import sys
+from pathlib import Path
 
 from rich.console import Console
 
@@ -75,6 +76,38 @@ def cmd_summarize(args: argparse.Namespace) -> None:
     console.print(result["summary"])
 
 
+def _patch_claude_json(app_name: str, remove: bool) -> None:
+    claude_json = Path.home() / ".claude.json"
+    exe = str(Path(sys.argv[0]).resolve())
+
+    data: dict = {}
+    if claude_json.exists():
+        try:
+            data = json.loads(claude_json.read_text(encoding="utf-8"))
+        except json.JSONDecodeError:
+            _fail("~/.claude.json contains invalid JSON.")
+
+    servers: dict = data.setdefault("mcpServers", {})
+
+    if remove:
+        if app_name in servers:
+            del servers[app_name]
+            claude_json.write_text(json.dumps(data, indent=2), encoding="utf-8")
+            console.print(f"[green]Removed[/green] {app_name} from ~/.claude.json")
+        else:
+            console.print(f"[dim]{app_name} not registered — nothing to remove.[/dim]")
+        return
+
+    servers[app_name] = {"type": "stdio", "command": exe, "args": ["mcp"], "env": {}}
+    claude_json.write_text(json.dumps(data, indent=2), encoding="utf-8")
+    console.print(f"[green]Registered[/green] {app_name} → [cyan]{exe}[/cyan]")
+    console.print("[dim]Restart Claude Code to activate.[/dim]")
+
+
+def cmd_patch_claude(args: argparse.Namespace) -> None:
+    _patch_claude_json("gitscribe", remove=args.remove)
+
+
 def cmd_mcp(args: argparse.Namespace) -> None:
     if args.print_config:
         venv_exe = sys.executable.replace("python.exe", "gitscribe.exe")
@@ -134,6 +167,11 @@ def _build_parser() -> argparse.ArgumentParser:
     p.add_argument("paths", nargs="*", help="Limit to specific paths.")
     p.add_argument("--repo", **_repo)
     p.set_defaults(func=cmd_summarize)
+
+    # patch-claude
+    p = sub.add_parser("patch-claude", help="Register/unregister in ~/.claude.json.")
+    p.add_argument("--remove", action="store_true", help="Remove from ~/.claude.json.")
+    p.set_defaults(func=cmd_patch_claude)
 
     # mcp
     p = sub.add_parser("mcp", help="Start the MCP stdio server.")

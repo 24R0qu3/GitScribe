@@ -1,0 +1,67 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+jobs:
+  build:
+    strategy:
+      matrix:
+        include:
+          - os: windows-latest
+            suffix: windows.exe
+          - os: ubuntu-latest
+            suffix: linux
+          - os: macos-latest
+            suffix: macos
+
+    runs-on: ${{ matrix.os }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: pip install -e ".[build]"
+
+      - name: Build executable
+        shell: bash
+        run: |
+          echo "from gitscribe.main import run; run()" > _entry.py
+          pyinstaller --onefile --name gitscribe --collect-all gitscribe _entry.py
+
+      - name: Rename artifact
+        shell: bash
+        run: |
+          TAG="${{ github.ref_name }}"
+          if [ -f "dist/gitscribe.exe" ]; then
+            mv dist/gitscribe.exe "dist/gitscribe-${TAG}-${{ matrix.suffix }}"
+          else
+            mv dist/gitscribe "dist/gitscribe-${TAG}-${{ matrix.suffix }}"
+          fi
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: gitscribe-${{ github.ref_name }}-${{ matrix.os }}
+          path: dist/gitscribe-${{ github.ref_name }}-*
+
+  release:
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist/
+          merge-multiple: true
+
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: dist/**
