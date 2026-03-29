@@ -75,11 +75,8 @@ if ! echo ":$PATH:" | grep -q ":$INSTALL_DIR:"; then
   echo "  $INSTALL_DIR is not in your PATH. Add it:"
   echo "    echo 'export PATH=\"$INSTALL_DIR:\$PATH\"' >> ~/.bashrc   # bash"
   echo "    echo 'export PATH=\"$INSTALL_DIR:\$PATH\"' >> ~/.zshrc    # zsh"
-  echo "  Then restart your terminal and re-run: $BIN patch-claude"
+  echo "  Then restart your terminal."
   echo ""
-  exit 0
 fi
 
-# ── Register with Claude Code ─────────────────────────────────────────────────
-"$BIN" patch-claude
-echo "Done. Restart Claude Code to activate gitscribe."
+echo "Done. To register with Claude Code run: gitscribe patch-claude"

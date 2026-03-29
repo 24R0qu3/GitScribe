@@ -60,6 +60,4 @@ if ($UserPath -notlike "*$InstallDir*") {
     Write-Host "Added $InstallDir to user PATH (restart terminal to take effect)"
 }
 
-# ── Register with Claude Code ─────────────────────────────────────────────────
-& $Dest patch-claude
-Write-Host "Done. Restart Claude Code to activate gitscribe."
+Write-Host "Done. To register with Claude Code run: gitscribe patch-claude"
