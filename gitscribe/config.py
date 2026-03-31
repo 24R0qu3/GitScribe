@@ -10,13 +10,13 @@ _CONFIG_FILE = _CONFIG_DIR / "config.toml"
 _DEFAULTS: dict = {
     "repo_path": os.getcwd(),
     "backend": "auto",
-    "ollama_url": "http://localhost:11434/api/generate",
+    "ollama_url": "http://localhost:11434/api/chat",
     "ollama_health_url": "http://localhost:11434/api/tags",
-    "ollama_model": "qwen2.5:3b",
+    "ollama_model": "qwen3:1.7b",
     "ollama_timeout": 60,
     "claude_model": "claude-haiku-4-5-20251001",
     "claude_timeout": 60,
-    "diff_max_lines": 500,
+    "diff_max_lines": 200,
 }
 
 

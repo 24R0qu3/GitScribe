@@ -5,9 +5,11 @@ from .config import DIFF_MAX_LINES, REPO_PATH
 from .prompts import (
     build_commit_message_prompt,
     build_pr_description_prompt,
+    build_review_combine_prompt,
     build_review_diff_prompt,
     build_suggest_branch_name_prompt,
     build_summarize_changes_prompt,
+    build_summarize_combine_prompt,
 )
 
 _GIT_TIMEOUT = 10
@@ -17,7 +19,7 @@ def _get_diff(
     repo_path: str,
     staged: bool = False,
     paths: list[str] | None = None,
-    max_lines: int = DIFF_MAX_LINES,
+    max_lines: int | None = DIFF_MAX_LINES,
 ) -> dict:
     cmd = ["git", "diff"]
     if staged:
@@ -38,8 +40,34 @@ def _get_diff(
     if result.returncode != 0:
         return {"error": f"Git error: {result.stderr.strip()}"}
     lines = result.stdout.splitlines()
-    truncated = len(lines) > max_lines
-    return {"diff": "\n".join(lines[:max_lines]), "truncated": truncated}
+    if max_lines is not None:
+        truncated = len(lines) > max_lines
+        return {"diff": "\n".join(lines[:max_lines]), "truncated": truncated}
+    return {"diff": "\n".join(lines), "truncated": False}
+
+
+def _get_stat(repo_path: str, extra_args: list[str] | None = None) -> str:
+    cmd = ["git", "diff", "--stat"] + (extra_args or [])
+    try:
+        result = subprocess.run(
+            cmd,
+            cwd=repo_path,
+            capture_output=True,
+            stdin=subprocess.DEVNULL,
+            text=True,
+            timeout=_GIT_TIMEOUT,
+        )
+        return result.stdout.strip() if result.returncode == 0 else ""
+    except OSError:
+        return ""
+
+
+def _chunk_diff(diff: str, max_lines: int) -> list[str]:
+    lines = diff.splitlines()
+    return [
+        "\n".join(lines[i : i + max_lines])
+        for i in range(0, len(lines), max_lines)
+    ]
 
 
 def _err(msg: str) -> dict:
@@ -56,19 +84,21 @@ def _ok(**kwargs) -> dict:
 
 
 def _data_generate_commit_message(repo_path: str = REPO_PATH, staged_only: bool = True) -> dict:
+    stat = _get_stat(repo_path, extra_args=["--staged"] if staged_only else [])
     diff_result = _get_diff(repo_path, staged=staged_only)
     if "error" in diff_result:
         return diff_result
     if not diff_result["diff"].strip():
         return _err("No changes found to generate a commit message from.")
     try:
-        message = generate(build_commit_message_prompt(diff_result["diff"]))
+        message = generate(build_commit_message_prompt(diff_result["diff"], stat=stat))
     except RuntimeError as e:
         return _err(str(e))
     return _ok(message=message, truncated=diff_result["truncated"])
 
 
 def _data_generate_pr_description(repo_path: str = REPO_PATH, base_branch: str = "main") -> dict:
+    stat = _get_stat(repo_path, extra_args=[f"{base_branch}...HEAD"])
     try:
         result = subprocess.run(
             ["git", "diff", f"{base_branch}...HEAD"],
@@ -104,7 +134,7 @@ def _data_generate_pr_description(repo_path: str = REPO_PATH, base_branch: str =
         head_branch = "HEAD"
 
     try:
-        raw = generate(build_pr_description_prompt(diff, base_branch, head_branch))
+        raw = generate(build_pr_description_prompt(diff, base_branch, head_branch, stat=stat))
     except RuntimeError as e:
         return _err(str(e))
 
@@ -119,16 +149,21 @@ def _data_review_diff(
     staged: bool = False,
     paths: list[str] | None = None,
 ) -> dict:
-    diff_result = _get_diff(repo_path, staged=staged, paths=paths)
+    diff_result = _get_diff(repo_path, staged=staged, paths=paths, max_lines=None)
     if "error" in diff_result:
         return diff_result
     if not diff_result["diff"].strip():
         return _err("No changes found to review.")
+    chunks = _chunk_diff(diff_result["diff"], DIFF_MAX_LINES)
     try:
-        review = generate(build_review_diff_prompt(diff_result["diff"]))
+        if len(chunks) == 1:
+            review = generate(build_review_diff_prompt(chunks[0]))
+        else:
+            partial = [generate(build_review_diff_prompt(chunk)) for chunk in chunks]
+            review = generate(build_review_combine_prompt(partial))
     except RuntimeError as e:
         return _err(str(e))
-    return _ok(review=review, truncated=diff_result["truncated"])
+    return _ok(review=review, truncated=False)
 
 
 def _data_suggest_branch_name(description: str = "") -> dict:
@@ -146,13 +181,18 @@ def _data_summarize_changes(
     staged: bool = False,
     paths: list[str] | None = None,
 ) -> dict:
-    diff_result = _get_diff(repo_path, staged=staged, paths=paths)
+    diff_result = _get_diff(repo_path, staged=staged, paths=paths, max_lines=None)
     if "error" in diff_result:
         return diff_result
     if not diff_result["diff"].strip():
         return _err("No changes found to summarize.")
+    chunks = _chunk_diff(diff_result["diff"], DIFF_MAX_LINES)
     try:
-        summary = generate(build_summarize_changes_prompt(diff_result["diff"]))
+        if len(chunks) == 1:
+            summary = generate(build_summarize_changes_prompt(chunks[0]))
+        else:
+            partial = [generate(build_summarize_changes_prompt(chunk)) for chunk in chunks]
+            summary = generate(build_summarize_combine_prompt(partial))
     except RuntimeError as e:
         return _err(str(e))
-    return _ok(summary=summary, truncated=diff_result["truncated"])
+    return _ok(summary=summary, truncated=False)

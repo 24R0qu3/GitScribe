@@ -18,7 +18,7 @@ AI-powered git assistant — generates commit messages, PR descriptions, diff re
 |---|---|
 | `ollama` | Always use local Ollama |
 | `claude` | Always use Claude API |
-| `auto` _(default)_ | Ollama if running, Claude API otherwise |
+| `auto` _(default)_ | Ollama if running or startable, Claude API otherwise |
 
 ## Installation
 
@@ -67,9 +67,9 @@ Create `~/.config/gitscribe/config.toml`:
 
 ```toml
 backend = "auto"          # auto | ollama | claude
-ollama_model = "qwen3:8b"
+ollama_model = "qwen3:1.7b"
 ollama_url = "http://localhost:11434/api/generate"
-diff_max_lines = 500
+diff_max_lines = 200
 ```
 
 For the Claude backend, set your API key:
