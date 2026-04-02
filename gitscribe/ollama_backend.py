@@ -3,7 +3,7 @@ import requests
 from .config import OLLAMA_MODEL, OLLAMA_TIMEOUT, OLLAMA_URL
 
 
-def generate(prompt: str) -> str:
+def _post(prompt: str) -> str:
     payload = {
         "model": OLLAMA_MODEL,
         "messages": [{"role": "user", "content": prompt}],
@@ -19,4 +19,28 @@ def generate(prompt: str) -> str:
         raise RuntimeError(f"Could not connect to Ollama: {e}")
     except requests.exceptions.HTTPError as e:
         raise RuntimeError(f"Ollama HTTP error: {e}")
-    return response.json()["message"]["content"].strip()
+    data = response.json()
+    content = data.get("message", {}).get("content", "").strip()
+    if not content and data.get("done_reason") == "load":
+        raise _ModelLoading()
+    return content
+
+
+class _ModelLoading(Exception):
+    """Raised when Ollama returns done_reason=load with no content."""
+
+
+def generate(prompt: str) -> str:
+    """Call Ollama, retrying once if the model was still loading on the first call."""
+    try:
+        return _post(prompt)
+    except _ModelLoading:
+        pass
+    # Second attempt after the model has finished loading
+    try:
+        return _post(prompt)
+    except _ModelLoading:
+        raise RuntimeError(
+            f"Ollama model '{OLLAMA_MODEL}' loaded but returned no content. "
+            "Try again or check the model."
+        )

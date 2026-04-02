@@ -1,7 +1,38 @@
 import os
+import sys
+from types import ModuleType
 from unittest.mock import MagicMock, patch
 
 import pytest
+
+
+# ---------------------------------------------------------------------------
+# Helpers
+# ---------------------------------------------------------------------------
+
+
+def _ollama_response(content: str, done_reason: str = "stop") -> MagicMock:
+    """Build a mock requests.Response with Ollama /api/chat format."""
+    mock_resp = MagicMock()
+    mock_resp.raise_for_status = MagicMock()
+    mock_resp.json.return_value = {
+        "model": "qwen3:1.7b",
+        "message": {"role": "assistant", "content": content},
+        "done": True,
+        "done_reason": done_reason,
+    }
+    return mock_resp
+
+
+def _stub_anthropic():
+    """Insert a minimal fake 'anthropic' module so claude_backend can be imported."""
+    if "anthropic" in sys.modules:
+        return
+    stub = ModuleType("anthropic")
+    stub.Anthropic = MagicMock()
+    stub.APIError = Exception
+    sys.modules["anthropic"] = stub
+
 
 # ---------------------------------------------------------------------------
 # Ollama backend
@@ -10,10 +41,10 @@ import pytest
 
 class TestOllamaBackend:
     def test_success(self):
-        mock_resp = MagicMock()
-        mock_resp.json.return_value = {"response": "feat: add thing"}
-        mock_resp.raise_for_status = MagicMock()
-        with patch("gitscribe.ollama_backend.requests.post", return_value=mock_resp):
+        with patch(
+            "gitscribe.ollama_backend.requests.post",
+            return_value=_ollama_response("feat: add thing"),
+        ):
             from gitscribe.ollama_backend import generate
 
             result = generate("prompt")
@@ -54,6 +85,32 @@ class TestOllamaBackend:
             with pytest.raises(RuntimeError, match="HTTP"):
                 generate("prompt")
 
+    def test_retries_once_on_load_response(self):
+        """When Ollama returns done_reason=load (empty content), retry once and succeed."""
+        responses = iter([
+            _ollama_response("", done_reason="load"),
+            _ollama_response("feat: add thing"),
+        ])
+        with patch(
+            "gitscribe.ollama_backend.requests.post",
+            side_effect=lambda *a, **kw: next(responses),
+        ):
+            from gitscribe.ollama_backend import generate
+
+            result = generate("prompt")
+        assert result == "feat: add thing"
+
+    def test_raises_after_two_load_responses(self):
+        """If both attempts return done_reason=load, raise RuntimeError."""
+        with patch(
+            "gitscribe.ollama_backend.requests.post",
+            return_value=_ollama_response("", done_reason="load"),
+        ):
+            from gitscribe.ollama_backend import generate
+
+            with pytest.raises(RuntimeError, match="loaded but returned no content"):
+                generate("prompt")
+
 
 # ---------------------------------------------------------------------------
 # Claude backend
@@ -62,6 +119,7 @@ class TestOllamaBackend:
 
 class TestClaudeBackend:
     def test_success(self):
+        _stub_anthropic()
         mock_content = MagicMock()
         mock_content.text = "feat: add thing"
         mock_message = MagicMock()
@@ -77,6 +135,7 @@ class TestClaudeBackend:
         assert result == "feat: add thing"
 
     def test_missing_api_key_raises(self):
+        _stub_anthropic()
         with patch.dict(os.environ, {}, clear=True):
             os.environ.pop("ANTHROPIC_API_KEY", None)
             from gitscribe.claude_backend import generate
@@ -85,6 +144,7 @@ class TestClaudeBackend:
                 generate("prompt")
 
     def test_api_error_raises(self):
+        _stub_anthropic()
         mock_client = MagicMock()
         mock_client.messages.create.side_effect = Exception("API error")
         with patch.dict(os.environ, {"ANTHROPIC_API_KEY": "test-key"}):
@@ -106,15 +166,15 @@ class TestBackendAutoDetection:
 
         with patch.object(backend, "BACKEND", "auto"):
             with patch.object(backend, "_ollama_reachable", return_value=True):
-                with patch("gitscribe.ollama_backend.requests.post") as mock_post:
-                    mock_resp = MagicMock()
-                    mock_resp.json.return_value = {"response": "from ollama"}
-                    mock_resp.raise_for_status = MagicMock()
-                    mock_post.return_value = mock_resp
+                with patch(
+                    "gitscribe.ollama_backend.requests.post",
+                    return_value=_ollama_response("from ollama"),
+                ):
                     result = backend.generate("prompt")
         assert result == "from ollama"
 
     def test_auto_falls_back_to_claude_when_ollama_unreachable(self):
+        _stub_anthropic()
         from gitscribe import backend
 
         mock_content = MagicMock()
@@ -125,13 +185,14 @@ class TestBackendAutoDetection:
         mock_client.messages.create.return_value = mock_message
 
         with patch.object(backend, "_ollama_reachable", return_value=False):
-            with patch.object(backend, "BACKEND", "auto"):
-                with patch.dict(os.environ, {"ANTHROPIC_API_KEY": "key"}):
-                    with patch(
-                        "gitscribe.claude_backend.anthropic.Anthropic",
-                        return_value=mock_client,
-                    ):
-                        result = backend.generate("prompt")
+            with patch.object(backend, "_try_start_ollama", return_value=False):
+                with patch.object(backend, "BACKEND", "auto"):
+                    with patch.dict(os.environ, {"ANTHROPIC_API_KEY": "key"}):
+                        with patch(
+                            "gitscribe.claude_backend.anthropic.Anthropic",
+                            return_value=mock_client,
+                        ):
+                            result = backend.generate("prompt")
         assert result == "from claude"
 
     def test_unknown_backend_raises(self):
@@ -145,15 +206,16 @@ class TestBackendAutoDetection:
         from gitscribe import backend
 
         with patch.object(backend, "BACKEND", "ollama"):
-            with patch("gitscribe.ollama_backend.requests.post") as mock_post:
-                mock_resp = MagicMock()
-                mock_resp.json.return_value = {"response": "ollama result"}
-                mock_resp.raise_for_status = MagicMock()
-                mock_post.return_value = mock_resp
-                result = backend.generate("prompt")
+            with patch.object(backend, "_ollama_reachable", return_value=True):
+                with patch(
+                    "gitscribe.ollama_backend.requests.post",
+                    return_value=_ollama_response("ollama result"),
+                ):
+                    result = backend.generate("prompt")
         assert result == "ollama result"
 
     def test_forced_claude(self):
+        _stub_anthropic()
         from gitscribe import backend
 
         mock_content = MagicMock()

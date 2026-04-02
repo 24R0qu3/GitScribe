@@ -13,7 +13,7 @@ _DEFAULTS: dict = {
     "ollama_url": "http://localhost:11434/api/chat",
     "ollama_health_url": "http://localhost:11434/api/tags",
     "ollama_model": "qwen3:1.7b",
-    "ollama_timeout": 60,
+    "ollama_timeout": 120,
     "claude_model": "claude-haiku-4-5-20251001",
     "claude_timeout": 60,
     "diff_max_lines": 200,
